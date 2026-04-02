@@ -43,24 +43,29 @@ class ArucoDetector(Node):
 
         self.marker_size = 0.08
 
+        # 多帧融合
+        self.detection_history = {}
+        self.history_size = 5
+
+        # 置信度过滤
+        self.min_marker_area = 500
+
         self.inventory = {}
         self.log_dir = os.path.expanduser('~/warehouse_log')
         os.makedirs(self.log_dir, exist_ok=True)
 
-        self.item_names = {
-            0: "Package_A",
-            1: "Package_B",
-            2: "Package_C",
-            3: "Package_D",
-            4: "Package_E",
-            5: "Package_F",
-            6: "Package_G",
-            7: "Package_H",
-            8: "Package_I",
-            9: "Package_J",
-        }
+        self.mode = "register"
+        self.baseline_path = os.path.join(self.log_dir, "baseline.json")
+        self.baseline = {}
 
-        self.get_logger().info("ArUco Detector started, waiting for images...")
+        if os.path.exists(self.baseline_path):
+            with open(self.baseline_path, 'r') as f:
+                self.baseline = json.load(f)
+            self.mode = "inspect"
+            self.get_logger().info("Baseline loaded, switching to inspection mode")
+        else:
+            self.get_logger().info("No baseline found, starting in registration mode")
+
     
     def image_callback(self, msg):
         start_time = time.time()
@@ -74,7 +79,12 @@ class ArucoDetector(Node):
 
             for i in range(len(ids)):
                 marker_id = ids[i][0]
-                corner = corners[i][0]
+                corner = corners[i]
+
+                # 过滤小面积标记
+                area = cv2.contourArea(corner)
+                if area < self.min_marker_area:
+                    continue
 
                 obj_points = np.array([
                     [-self.marker_size/2, self.marker_size/2, 0],
@@ -85,23 +95,46 @@ class ArucoDetector(Node):
 
                 success, rvec, tvec = cv2.solvePnP(obj_points, corner, self.camera_matrix, self.dist_coeffs)
 
-                if success:
-                    cv2.drawFrameAxes(frame, self.camera_matrix, self.dist_coeffs, rvec, tvec, 0.05)
+                if not success:
+                    continue
+                
+                cv2.drawFrameAxes(frame, self.camera_matrix, self.dist_coeffs, rvec, tvec, 0.05)
 
-                    distance = np.linalg.norm(tvec)
-                    item_name = self.item_names.get(marker_id, f"Unknown_{marker_id}")
+                if marker_id not in self.detection_history:
+                    self.detection_history[marker_id] = []
+                self.detection_history[marker_id].append((rvec, tvec))
 
-                    cx = int(corner[:, 0].mean())
-                    cy = int(corner[:, 1].mean())
-                    cv2.putText(frame, f"ID:{marker_id} {item_name}",
-                                (cx - 60, cy - 20),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                    cv2.putText(frame, f"Dist:{distance:.2f}m",
-                                (cx - 60, cy + 20),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                if len(self.detection_history[marker_id]) > self.history_size:
+                    self.detection_history[marker_id].pop(0)
+                
+                avg_tvec = np.mean(self.detection_history[marker_id], axis=0)
+                distance = float(np.linalg.norm(avg_tvec))
 
-                    self.log_detection(marker_id, item_name, tvec, distance)
-                    self.get_logger().info(f"Detected {item_name} (ID: {marker_id}) at distance {distance:.2f}m")
+                item_name = self.item_names.get(marker_id, f"Unknown_{marker_id}")
+
+                cx = int(corner[0][:, 0].mean())
+                cy = int(corner[0][:, 1].mean())
+                cv2.putText(frame, f"ID:{marker_id} {item_name}",
+                            (cx - 60, cy - 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                cv2.putText(frame, f"Dist:{distance:.2f}m",
+                            (cx - 60, cy + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+                self.log_detection(marker_id, item_name, tvec, distance)
+                self.get_logger().info(f"Detected {item_name} (ID: {marker_id}) at distance {distance:.2f}m")
+
+        mode_text = f"Mode: {self.mode.upper()}"
+        if self.mode == "register":
+            mode_color = (0, 255, 255)
+        else:
+            mode_color = (0, 255, 0)
+        cv2.putText(frame, mode_text, 
+                    (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, mode_color, 2)
+        cv2.putText(frame, f"Items detected: {len(self.inventory)}", 
+                    (10, 70), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
                 
         img_msg = self.bridge.cv2_to_imgmsg(frame, encoding='bgr8')
         self.pub_img.publish(img_msg)
