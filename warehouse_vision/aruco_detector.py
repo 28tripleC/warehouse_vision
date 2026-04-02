@@ -50,6 +50,9 @@ class ArucoDetector(Node):
         # 置信度过滤
         self.min_marker_area = 500
 
+        # 物品ID与名称映射
+        self.item_names = {}
+
         self.inventory = {}
         self.log_dir = os.path.expanduser('~/warehouse_log')
         os.makedirs(self.log_dir, exist_ok=True)
@@ -93,7 +96,7 @@ class ArucoDetector(Node):
                     [-self.marker_size/2, -self.marker_size/2, 0]
                 ], dtype=np.float64)
 
-                success, rvec, tvec = cv2.solvePnP(obj_points, corner, self.camera_matrix, self.dist_coeffs)
+                success, rvec, tvec = cv2.solvePnP(obj_points, corner[0], self.camera_matrix, self.dist_coeffs)
 
                 if not success:
                     continue
@@ -110,7 +113,10 @@ class ArucoDetector(Node):
                 avg_tvec = np.mean(self.detection_history[marker_id], axis=0)
                 distance = float(np.linalg.norm(avg_tvec))
 
-                item_name = self.item_names.get(marker_id, f"Unknown_{marker_id}")
+                if self.mode == "inspect" and str(marker_id) in self.baseline:
+                    item_name = self.baseline[str(marker_id)]['item_name']
+                else:
+                    item_name = f"Item_{marker_id}"
 
                 cx = int(corner[0][:, 0].mean())
                 cy = int(corner[0][:, 1].mean())
