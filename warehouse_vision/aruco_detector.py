@@ -86,7 +86,7 @@ class ArucoDetector(Node):
             pose_camera.pose.orientation.w = 1.0
 
             transform = self.tf_buffer.lookup_transform("map", "camera_frame", rclpy.time.Time(), timeout=rclpy.duration.Duration(seconds=0.5))
-            pose_map = tf2_geometry_msgs.do_transform_pose(pose_camera, transform)
+            pose_map = tf2_geometry_msgs.do_transform_pose(pose_camera.pose, transform)
             return pose_map
 
         except (tf2_ros.LookupException,
@@ -155,8 +155,8 @@ class ArucoDetector(Node):
                 map_x = 0.0
                 map_y = 0.0
                 if pose_map:
-                    map_x = pose_map.pose.position.x
-                    map_y = pose_map.pose.position.y
+                    map_x = pose_map.position.x
+                    map_y = pose_map.position.y
                     cv2.putText(frame, f"Map:({map_x:.2f},{map_y:.2f})",
                                 (cx - 60, cy + 30),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 255), 1)
