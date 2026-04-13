@@ -33,7 +33,7 @@ class ArucoDetector(Node):
         if os.path.exists(calib_file):
             data = np.load(calib_file)
             self.camera_matrix = data['camera_matrix']
-            self.dist_coeffs = data['dist_coeffs']
+            self.dist_coeffs = data['dist_coeff']
             self.get_logger().info("Loaded camera calibration from file")
         else:
             self.get_logger().warning("Calibration file not found, using default parameters")
